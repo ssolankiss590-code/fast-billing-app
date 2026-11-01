@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise Billing Solution - v1.0</title>
+    <style>
+        :root { --primary: #1e3a8a; --accent: #10b981; --bg: #f3f4f6; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 1000px; margin: auto; display: grid; grid-template-columns: 350px 1fr; gap: 20px; }
+        
+        /* Sidebar for Controls */
+        .sidebar { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); height: fit-content; }
+        .sidebar h3 { margin-top: 0; border-bottom: 2px solid var(--bg); padding-bottom: 10px; color: var(--primary); }
+        input, select, textarea { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
+        
+        /* Invoice Sheet */
+        .invoice-paper { background: white; padding: 50px; border-radius: 2px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); min-height: 800px; position: relative; }
+        .invoice-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; }
+        .logo-area { width: 120px; height: 120px; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .logo-area img { max-width: 100%; max-height: 100%; }
+        
+        .biz-info { text-align: right; }
+        .biz-info h2 { margin: 0; color: var(--primary); font-size: 24px; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 30px; }
+        th { background: #f8fafc; border-bottom: 2px solid #e2e8f0; padding: 12px; text-align: left; }
+        td { padding: 12px; border-bottom: 1px solid #f1f5f9; }
+        
+        .totals { margin-top: 30px; margin-left: auto; width: 250px; }
+        .total-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 14px; }
+        .grand-total { font-size: 18px; font-weight: bold; border-top: 2px solid var(--primary); padding-top: 10px; margin-top: 10px; color: var(--primary); }
+        
+        .terms { margin-top: 50px; font-size: 12px; color: #666; border-top: 1px solid #eee; padding-top: 10px; }
+        
+        .btn { cursor: pointer; border: none; border-radius: 6px; padding: 12px; font-weight: bold; transition: 0.2s; width: 100%; margin-top: 10px; }
+        .btn-add { background: var(--accent); color: white; }
+        .btn-print { background: var(--primary); color: white; }
+        
+        @media print {
+            .sidebar, .no-print, .btn { display: none !important; }
+            body { padding: 0; background: white; }
+            .container { display: block; }
+            .invoice-paper { box-shadow: none; padding: 20px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="sidebar no-print">
+        <h3>1. Business Settings</h3>
+        <input type="text" id="bizNameInput" placeholder="Business Name" oninput="updateBiz()">
+        <input type="text" id="bizContactInput" placeholder="Address & Phone" oninput="updateBiz()">
+        <input type="file" id="logoInput" accept="image/*" onchange="loadLogo(event)">
+        
+        <h3>2. Add Items</h3>
+        <input type="text" id="itemName" placeholder="Item Description">
+        <input type="number" id="itemQty" placeholder="Quantity">
+        <input type="number" id="itemPrice" placeholder="Unit Price (₹)">
+        <select id="itemTax">
+            <option value="0">GST 0%</option>
+            <option value="5">GST 5%</option>
+            <option value="12">GST 12%</option>
+            <option value="18">GST 18%</option>
+        </select>
+        <button class="btn btn-add" onclick="addItem()">Add to Invoice</button>
+
+        <h3>3. Terms & Footer</h3>
+        <textarea id="termsInput" placeholder="Terms & Conditions..." oninput="updateBiz()"></textarea>
+        
+        <button class="btn btn-print" onclick="window.print()">Print / Save as PDF</button>
+        <button class="btn" style="background:#ef4444; color:white" onclick="clearAll()">Reset Invoice</button>
+    </div>
+
+    <div class="invoice-paper" id="invoice">
+        <div class="invoice-header">
+            <div class="logo-area" id="logoPreview">Logo</div>
+            <div class="biz-info">
+                <h2 id="dispBizName">Your Business Name</h2>
+                <p id="dispBizContact" style="white-space: pre-line;">Contact Details</p>
+            </div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Item</th>
+                    <th>Qty</th>
+                    <th>Price</th>
+                    <th>GST</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody id="billBody"></tbody>
+        </table>
+
+        <div class="totals">
+            <div class="total-row"><span>Sub-Total:</span> <span id="subTotal">₹0.00</span></div>
+            <div class="total-row"><span>Total GST:</span> <span id="taxTotal">₹0.00</span></div>
+            <div class="total-row grand-total"><span>Grand Total:</span> <span id="grandTotal">₹0.00</span></div>
+        </div>
+
+        <div class="terms">
+            <strong>Terms & Conditions:</strong>
+            <p id="dispTerms">Goods once sold will not be taken back.</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    let items = JSON.parse(localStorage.getItem('invoiceItems')) || [];
+
+    // Load Data on Start
+    window.onload = () => {
+        renderItems();
+        if(localStorage.getItem('bizName')) {
+            document.getElementById('bizNameInput').value = localStorage.getItem('bizName');
+            document.getElementById('bizContactInput').value = localStorage.getItem('bizContact');
+            document.getElementById('termsInput').value = localStorage.getItem('bizTerms');
+            updateBiz();
+        }
+    };
+
+    function updateBiz() {
+        const name = document.getElementById('bizNameInput').value;
+        const contact = document.getElementById('bizContactInput').value;
+        const terms = document.getElementById('termsInput').value;
+
+        document.getElementById('dispBizName').innerText = name || "Your Business Name";
+        document.getElementById('dispBizContact').innerText = contact || "Contact Details";
+        document.getElementById('dispTerms').innerText = terms || "Goods once sold will not be taken back.";
+
+        localStorage.setItem('bizName', name);
+        localStorage.setItem('bizContact', contact);
+        localStorage.setItem('bizTerms', terms);
+    }
+
+    function loadLogo(event) {
+        const reader = new FileReader();
+        reader.onload = function() {
+            const output = document.getElementById('logoPreview');
+            output.innerHTML = `<img src="${reader.result}">`;
+            localStorage.setItem('bizLogo', reader.result);
+        };
+        reader.readAsDataURL(event.target.files[0]);
+    }
+
+    function addItem() {
+        const name = document.getElementById('itemName').value;
+        const qty = parseFloat(document.getElementById('itemQty').value);
+        const price = parseFloat(document.getElementById('itemPrice').value);
+        const taxRate = parseFloat(document.getElementById('itemTax').value);
+
+        if(name && qty && price >= 0) {
+            const base = qty * price;
+            const tax = (base * taxRate) / 100;
+            const total = base + tax;
+
+            items.push({ name, qty, price, taxRate, total, tax });
+            localStorage.setItem('invoiceItems', JSON.stringify(items));
+            renderItems();
+            
+            // Clear inputs
+            document.getElementById('itemName').value = '';
+            document.getElementById('itemQty').value = '';
+            document.getElementById('itemPrice').value = '';
+        }
+    }
+
+    function renderItems() {
+        const body = document.getElementById('billBody');
+        body.innerHTML = '';
+        let sTotal = 0, tTotal = 0;
+
+        items.forEach((item, index) => {
+            sTotal += (item.qty * item.price);
+            tTotal += item.tax;
+            body.innerHTML += `
+                <tr>
+                    <td>${item.name}</td>
+                    <td>${item.qty}</td>
+                    <td>₹${item.price.toFixed(2)}</td>
+                    <td>${item.taxRate}%</td>
+                    <td>₹${item.total.toFixed(2)}</td>
+                </tr>`;
+        });
+
+        document.getElementById('subTotal').innerText = `₹${sTotal.toFixed(2)}`;
+        document.getElementById('taxTotal').innerText = `₹${tTotal.toFixed(2)}`;
+        document.getElementById('grandTotal').innerText = `₹${(sTotal + tTotal).toFixed(2)}`;
+    }
+
+    function clearAll() {
+        if(confirm("Kya aap pura bill clear karna chahte hain?")) {
+            items = [];
+            localStorage.removeItem('invoiceItems');
+            renderItems();
+        }
+    }
+</script>
+
+</body>
+</html>
